@@ -22,6 +22,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:simple_barcode_scanner/simple_barcode_scanner.dart';
+import 'package:usb_serial/transaction.dart';
 import 'package:usb_serial/usb_serial.dart';
 import 'package:path/path.dart' as path;
 import '../../db_helper.dart';
@@ -97,7 +98,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
   //BluetoothDevice? ysiDevice;
   //BluetoothCharacteristic? readCharacteristic;
 
-  List<UsbDevice> devices = [];
+  //List<UsbDevice> devices = [];
   UsbPort? port;
   bool isConnected = false;
   StreamSubscription<Uint8List>? inputStreamSubscription;
@@ -143,7 +144,6 @@ class _SFormInSituSample extends State<SFormInSituSample> {
   @override
   void initState() {
     super.initState();
-    _getDevices();
     _checkInternet();
     _getProfile();
     _loadSampler();
@@ -179,8 +179,12 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
   @override
   void dispose() {
+    _subscription?.cancel();
+    _port?.close();
+    _readTimer?.cancel();
     super.dispose();
   }
+
 
   List<String> emailList = [];
 
@@ -837,6 +841,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
   final ImagePicker _picker9 = ImagePicker();
 
   File? _image1,_image2,_image3,_image4,_image5,_image6,_image7,_image8,_image9;
+  late String _img1='',_img2='',_img3='',_img4='';
 
   Future<void> _takePicture1() async {
     try {
@@ -867,6 +872,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
           setState(() {
             //_image1 = File(photo.path);
+            _img1 = '';
             _image1 = editedFile;
           });
         } else {
@@ -934,6 +940,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
           setState(() {
             //_image1 = File(photo.path);
+            _img2 = '';
             _image2 = editedFile;
           });
         } else {
@@ -1001,6 +1008,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
           setState(() {
             //_image1 = File(photo.path);
+            _img3 = '';
             _image3 = editedFile;
           });
         } else {
@@ -1068,6 +1076,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
           setState(() {
             //_image1 = File(photo.path);
+            _img4 = '';
             _image4 = editedFile;
           });
         } else {
@@ -1565,6 +1574,8 @@ class _SFormInSituSample extends State<SFormInSituSample> {
             ],
           ),
           SizedBox(height: 5,),
+          _image1 == null ? Text(_img1,style: TextStyle(color: Colors.red,fontWeight: FontWeight.bold),)
+              : SizedBox(width: 1.0,),
           Row(
             children: [
               Expanded(
@@ -1614,7 +1625,8 @@ class _SFormInSituSample extends State<SFormInSituSample> {
             ],
           ),
           SizedBox(height: 5,),
-
+          _image2 == null ? Text(_img2,style: TextStyle(color: Colors.red,fontWeight: FontWeight.bold),)
+              : SizedBox(width: 1.0,),
           Row(
             children: [
               Expanded(
@@ -1664,7 +1676,8 @@ class _SFormInSituSample extends State<SFormInSituSample> {
             ],
           ),
           SizedBox(height: 5,),
-
+          _image3 == null ? Text(_img3,style: TextStyle(color: Colors.red,fontWeight: FontWeight.bold),)
+              : SizedBox(width: 1.0,),
           Row(
             children: [
               Expanded(
@@ -1714,7 +1727,8 @@ class _SFormInSituSample extends State<SFormInSituSample> {
             ],
           ),
           SizedBox(height: 5,),
-
+          _image4 == null ? Text(_img4,style: TextStyle(color: Colors.red,fontWeight: FontWeight.bold),)
+              : SizedBox(width: 1.0,),
           Row(
             children: [
               Expanded(
@@ -2094,12 +2108,34 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
                           _formInSitu2.currentState!.save();
 
-                          setState(() {
-                            _form1 = false;
-                            _form2 = false;
-                            _form3 = true;
-                            _form4 = false;
-                          });
+                          if (_image1==null) {
+                            setState(() {
+                              _img1 = 'IMAGE IS REQUIRED?';
+                            });
+                          }
+                          if (_image2==null) {
+                            setState(() {
+                              _img2 = 'IMAGE IS REQUIRED?';
+                            });
+                          }
+                          if (_image3==null) {
+                            setState(() {
+                              _img3 = 'IMAGE IS REQUIRED?';
+                            });
+                          }
+                          if (_image4==null) {
+                            setState(() {
+                              _img4 = 'IMAGE IS REQUIRED?';
+                            });
+                          }
+                          else {
+                            setState(() {
+                              _form1 = false;
+                              _form2 = false;
+                              _form3 = true;
+                              _form4 = false;
+                            });
+                          }
 
                         }
                       },
@@ -2153,7 +2189,6 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               ),
             ],
           ),
-          Text(_logText),
           SizedBox(height: 5.0,),
 
           _isDeviceUSB ? Row(
@@ -2162,26 +2197,41 @@ class _SFormInSituSample extends State<SFormInSituSample> {
                 child: Column(
                   children: [
                     SizedBox(height: 8),
+                    Text("Available Devices:", style: TextStyle(fontWeight: FontWeight.bold)),
                     DropdownButton<UsbDevice>(
-                      hint: Text("Select Sonde Device (USB)",style: TextStyle(fontSize: 12),),
+                      isExpanded: true,
+                      hint: Text("Select a USB device"),
                       value: _selectedDevice,
                       items: _devices.map((device) {
                         return DropdownMenuItem(
                           value: device,
-                          child: Text("${device.manufacturerName} - ${device.productName}", style: TextStyle(fontSize: 12),),
+                          child: Text("${device.productName ?? 'Unknown'} (${device.deviceId})"),
                         );
                       }).toList(),
                       onChanged: (device) {
                         setState(() => _selectedDevice = device);
                       },
                     ),
-                    SizedBox(height: 16),
+                    SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: _isConnected ? null : () => _connectToDevice,
+                      child: Text("Connect & Start Reading"),
+                    ),
+                    ElevatedButton(
+                      onPressed: _getConnectedDevices,
+                      child: Text("Refresh Devices"),
+                    ),
+                    SizedBox(height: 20),
+                    Text("Temperature: $_temperature °C", style: TextStyle(fontSize: 18)),
+                    Text("pH: $_ph", style: TextStyle(fontSize: 18)),
+                    Text(_log),
                   ],
                 ),
               ),
             ],
           ) : SizedBox(width: 0.0,),
 
+          /*
           _isDeviceBluetooth ? Row(
             children: [
               Expanded(
@@ -2207,7 +2257,7 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               ),
             ],
           ) : SizedBox(width: 0.0,),
-
+          */
           SizedBox(height: 5.0,),
           /*
           Row(
@@ -2233,11 +2283,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 3,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _uuidData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => sondeID = value!),
                 ),
               ),
@@ -2305,11 +2362,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _doData1,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => doValue1 = value!),
                 ),
               ),
@@ -2329,11 +2393,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _doData2,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => doValue2 = value!),
                 ),
               ),
@@ -2353,11 +2424,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _phData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => pH = value!),
                 ),
               ),
@@ -2377,11 +2455,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _sanilityData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => salinity = value!),
                 ),
               ),
@@ -2401,11 +2486,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _ecData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => ec = value!),
                 ),
               ),
@@ -2425,11 +2517,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _tempData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => temperature = value!),
                 ),
               ),
@@ -2477,11 +2576,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _tdsData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => tds = value!),
                 ),
               ),
@@ -2501,11 +2607,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _turbidityData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => turbidity = value!),
                 ),
               ),
@@ -2525,11 +2638,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _tssData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => tss = value!),
                 ),
               ),
@@ -2549,11 +2669,18 @@ class _SFormInSituSample extends State<SFormInSituSample> {
               Expanded(
                 flex: 2,
                 child: TextFormField(
+                  readOnly: true,
                   controller: _batteryData,
                   decoration: InputDecoration(
-                    contentPadding: EdgeInsets.fromLTRB(10.0, 10.0, 20.0, 10.0),
+                    contentPadding: EdgeInsets.fromLTRB(0.0, 10.0, 20.0, 10.0),
                     border: OutlineInputBorder(),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return "Required"; // Error shown below field
+                    }
+                    return null; // No error
+                  },
                   onSaved: (value) => setState(() => battery = value!),
                 ),
               ),
@@ -3487,18 +3614,17 @@ class _SFormInSituSample extends State<SFormInSituSample> {
     });
   }*/
 
-  UsbPort? _port;
-  late String _logText = '';
   List<UsbDevice> _devices = [];
   UsbDevice? _selectedDevice;
-  late String _buffer = '';
-  late String _phValue = 'N/A';
+  UsbPort? _port;
+  StreamSubscription<String>? _subscription;
+  Timer? _readTimer;
 
-  void _getDevices() async {
-    _devices = await UsbSerial.listDevices();
-    setState(() {});
-  }
+  String _log = '';
+  bool _isConnected = false;
 
+  String _temperature = '';
+  String _ph = '';
 
   Future<void> _connectToSerial() async {
 
@@ -3507,172 +3633,79 @@ class _SFormInSituSample extends State<SFormInSituSample> {
       _isDeviceBluetooth = false;
     });
 
+    _getConnectedDevices();
+
+  }
+
+  Future<void> _getConnectedDevices() async {
+    List<UsbDevice> devices = await UsbSerial.listDevices();
+    setState(() {
+      _devices = devices;
+    });
+  }
+
+  Future<void> _connectToDevice(UsbDevice device) async {
+
     if (_selectedDevice == null) return;
 
     UsbPort? port = await _selectedDevice!.create();
-    bool openResult = await port!.open();
-
+    bool openResult = await port?.open() ?? false;
     if (!openResult) {
-      setState(() => _logText = "Failed to open port.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to open port.")),
+      );
       return;
     }
 
-    await port.setDTR(true);
+    await port!.setDTR(true);
     await port.setRTS(true);
     await port.setPortParameters(
-      9600, // Match your Sonde baud rate
+      115200,
       UsbPort.DATABITS_8,
       UsbPort.STOPBITS_1,
       UsbPort.PARITY_NONE,
     );
 
-    port.inputStream!.listen((data) {
-      String incoming = String.fromCharCodes(data);
-      _buffer += incoming;
-
-      RegExp idRegex = RegExp(r'ID=([A-Za-z0-9\-]+)');
-      Match? idMatch = idRegex.firstMatch(incoming);
-
-      RegExp doRegex = RegExp(r'DO=([0-9.]+)mg/L');
-      Match? doMatch = doRegex.firstMatch(incoming);
-
-      RegExp phRegex = RegExp(r'pH=([0-9.]+)');
-      Match? phMatch = phRegex.firstMatch(incoming);
-
-      RegExp salRegex = RegExp(r'Sal=([0-9.]+)ppt');
-      Match? salMatch = salRegex.firstMatch(incoming);
-
-      RegExp ecRegex = RegExp(r'Cond=([0-9.]+)uS/cm');
-      Match? ecMatch = ecRegex.firstMatch(incoming);
-
-      RegExp tempRegex = RegExp(r'Temp=([0-9.]+)C');
-      Match? tempMatch = tempRegex.firstMatch(incoming);
-
-      RegExp tdsRegex = RegExp(r'TDS=([0-9.]+)mg/L');
-      Match? tdsMatch = tdsRegex.firstMatch(incoming);
-
-      RegExp turbRegex = RegExp(r'Turb=([0-9.]+)NTU');
-      Match? turbMatch = turbRegex.firstMatch(incoming);
-
-      RegExp tssRegex = RegExp(r'TSS=([0-9.]+)mg/L');
-      Match? tssMatch = tssRegex.firstMatch(incoming);
-
-      RegExp battRegex = RegExp(r'Batt=([0-9.]+)V');
-      Match? battMatch = battRegex.firstMatch(incoming);
+    _port!.inputStream!.listen((data) {
+      final text = utf8.decode(data);
 
       setState(() {
-        _logText += incoming;
+        _log += text;
 
-        _uuidData.text = idMatch!.group(1).toString();
-        _doData1.text = doMatch!.group(1).toString();
-        _doData2.text = '0.00';
-        _phData.text = phMatch!.group(1).toString();
-        _sanilityData.text = salMatch!.group(1).toString();
-        _ecData.text = ecMatch!.group(1).toString();
-        _tempData.text = tempMatch!.group(1).toString();
-        _tdsData.text = tdsMatch!.group(1).toString();
-        _turbidityData.text = turbMatch!.group(1).toString();
-        _tssData.text = tssMatch!.group(1).toString();
-        _batteryData.text = battMatch!.group(1).toString();
+        // Extract temperature and pH from the Sonde response
+        final tempMatch = RegExp(r'Temp\s*=\s*([\d.]+)').firstMatch(text);
+        final phMatch = RegExp(r'pH\s*=\s*([\d.]+)').firstMatch(text);
+
+        if (tempMatch != null) {
+          _temperature = tempMatch.group(1) ?? '';
+        }
+
+        if (phMatch != null) {
+          _ph = phMatch.group(1) ?? '';
+        }
 
       });
+
+      print("Received: $text");
     });
 
-
+    _port = port;
     setState(() {
-      _port = port;
-      _logText += "Connected to USB device\n";
+      _isConnected = true;
+    });
+
+    // Start continuous read every 5 seconds
+    _readTimer = Timer.periodic(Duration(seconds: 5), (_) {
+      _sendCommand("read\r");
     });
 
   }
 
-
-  /*
-  Future<void> _connectToSerial() async {
-    List<UsbDevice> devices = await UsbSerial.listDevices();
-
-    if (devices.isEmpty) {
-      setState(() {
-        _status = "No USB devices found.";
-        print(_status);
-      });
-      return;
+  Future<void> _sendCommand(String command) async {
+    if (_port != null) {
+      await _port!.write(Uint8List.fromList(command.codeUnits));
     }
-
-    UsbPort? port = await devices.first.create();
-    bool open = await port!.open();
-    if (!open) {
-      setState(() => _status = "Failed to open port.");
-      return;
-    }
-
-    await port.setPortParameters(9600, UsbPort.DATABITS_8, UsbPort.STOPBITS_1, UsbPort.PARITY_NONE);
-    await port.setDTR(true);
-    await port.setRTS(true);
-
-    port.inputStream?.listen((data) {
-      String response = String.fromCharCodes(data);
-      print("Raw Data: $response");
-
-      RegExp idRegex = RegExp(r'ID=([A-Za-z0-9\-]+)');
-      Match? idMatch = idRegex.firstMatch(response);
-
-      RegExp doRegex = RegExp(r'DO=([0-9.]+)mg/L');
-      Match? doMatch = doRegex.firstMatch(response);
-
-      RegExp phRegex = RegExp(r'pH=([0-9.]+)');
-      Match? phMatch = phRegex.firstMatch(response);
-
-      RegExp salRegex = RegExp(r'Sal=([0-9.]+)ppt');
-      Match? salMatch = salRegex.firstMatch(response);
-
-      RegExp ecRegex = RegExp(r'Cond=([0-9.]+)uS/cm');
-      Match? ecMatch = ecRegex.firstMatch(response);
-
-      RegExp tempRegex = RegExp(r'Temp=([0-9.]+)C');
-      Match? tempMatch = tempRegex.firstMatch(response);
-
-      RegExp tdsRegex = RegExp(r'TDS=([0-9.]+)mg/L');
-      Match? tdsMatch = tdsRegex.firstMatch(response);
-
-      RegExp turbRegex = RegExp(r'Turb=([0-9.]+)NTU');
-      Match? turbMatch = turbRegex.firstMatch(response);
-
-      RegExp tssRegex = RegExp(r'TSS=([0-9.]+)mg/L');
-      Match? tssMatch = tssRegex.firstMatch(response);
-
-      RegExp battRegex = RegExp(r'Batt=([0-9.]+)V');
-      Match? battMatch = battRegex.firstMatch(response);
-
-      if (tempMatch != null) {
-
-        setState(() {
-          _uuidData.text = idMatch!.group(1).toString();
-          _doData1.text = doMatch!.group(1).toString();
-          _doData2.text = '0.00';
-          _phData.text = phMatch!.group(1).toString();
-          _sanilityData.text = salMatch!.group(1).toString();
-          _ecData.text = ecMatch!.group(1).toString();
-          _tempData.text = tempMatch.group(1).toString();
-          _tdsData.text = tdsMatch!.group(1).toString();
-          _turbidityData.text = turbMatch!.group(1).toString();
-          _tssData.text = tssMatch!.group(1).toString();
-          _batteryData.text = battMatch!.group(1).toString();
-        });
-
-      }
-    });
-
-    // Send command after short delay
-    Future.delayed(Duration(seconds: 1), () {
-      port.write(Uint8List.fromList("WQData\r\n".codeUnits));
-    });
-
-    setState(() {
-      _port = port;
-      _status = "Connected USB";
-    });
-  }*/
+  }
 
 
   void _sendDataServer() async {
@@ -3851,37 +3884,37 @@ class _SFormInSituSample extends State<SFormInSituSample> {
           style: TextStyle(fontWeight: FontWeight.bold,color: Colors.white),),backgroundColor: Colors.black,),
       );
 
-     setState(() {
+      setState(() {
 
-       firstSamplerName = '';
-       secondSamplerName = '';
-       selectedLocalSampler = null;
+        firstSamplerName = '';
+        secondSamplerName = '';
+        selectedLocalSampler = null;
 
-       _latitude.clear();
-       _longitude.clear();
-       _currentLatitude.clear();
-       _currentLongitude.clear();
-       _type = "";
-       _barcode.clear();
+        _latitude.clear();
+        _longitude.clear();
+        _currentLatitude.clear();
+        _currentLongitude.clear();
+        _type = "";
+        _barcode.clear();
 
-       _stateName.clear();
-       _latitude.clear();
-       _longitude.clear();
-       _stationID.clear();
-       _stationLatitude.clear();
-       _stationLongitude.clear();
-       _selectedStationName.clear();
+        _stateName.clear();
+        _latitude.clear();
+        _longitude.clear();
+        _stationID.clear();
+        _stationLatitude.clear();
+        _stationLongitude.clear();
+        _selectedStationName.clear();
 
-       selectedLocalState = null;
-       _isDisplay = false;
-       _isCategory = false;
-       _isLocation = false;
+        selectedLocalState = null;
+        _isDisplay = false;
+        _isCategory = false;
+        _isLocation = false;
 
-       _form1 = true;
-       _form2 = false;
-       _form3 = false;
-       _form4 = false;
-     });
+        _form1 = true;
+        _form2 = false;
+        _form3 = false;
+        _form4 = false;
+      });
 
     }
 
