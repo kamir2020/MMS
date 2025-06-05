@@ -179,9 +179,9 @@ class _SFormInSituSample extends State<SFormInSituSample> {
 
   @override
   void dispose() {
-    _subscription?.cancel();
+    _pollingTimer?.cancel();
+    _transaction?.dispose();
     _port?.close();
-    _readTimer?.cancel();
     super.dispose();
   }
 
@@ -2199,32 +2199,26 @@ class _SFormInSituSample extends State<SFormInSituSample> {
                     SizedBox(height: 8),
                     Text("Available Devices:", style: TextStyle(fontWeight: FontWeight.bold)),
                     DropdownButton<UsbDevice>(
-                      isExpanded: true,
-                      hint: Text("Select a USB device"),
+                      hint: Text("Select Device"),
                       value: _selectedDevice,
                       items: _devices.map((device) {
                         return DropdownMenuItem(
                           value: device,
-                          child: Text("${device.productName ?? 'Unknown'} (${device.deviceId})"),
+                          child: Text(
+                              "${device.productName ?? 'Unknown'} (${device.deviceId})"),
                         );
                       }).toList(),
-                      onChanged: (device) {
-                        setState(() => _selectedDevice = device);
+                      onChanged: (UsbDevice? device) {
+                        setState(() {
+                          _selectedDevice = device;
+                          _connectToDevice(device!);
+                        });
                       },
                     ),
-                    SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: _isConnected ? null : () => _connectToDevice,
-                      child: Text("Connect & Start Reading"),
-                    ),
-                    ElevatedButton(
-                      onPressed: _getConnectedDevices,
-                      child: Text("Refresh Devices"),
-                    ),
                     SizedBox(height: 20),
-                    Text("Temperature: $_temperature °C", style: TextStyle(fontSize: 18)),
-                    Text("pH: $_ph", style: TextStyle(fontSize: 18)),
-                    Text(_log),
+                    _isConnected
+                        ? Text("Temperature: $_temperature", style: TextStyle(fontSize: 22))
+                        : Text("Not connected"),
                   ],
                 ),
               ),
@@ -3617,14 +3611,10 @@ class _SFormInSituSample extends State<SFormInSituSample> {
   List<UsbDevice> _devices = [];
   UsbDevice? _selectedDevice;
   UsbPort? _port;
-  StreamSubscription<String>? _subscription;
-  Timer? _readTimer;
-
-  String _log = '';
-  bool _isConnected = false;
-
+  Transaction<String>? _transaction;
   String _temperature = '';
-  String _ph = '';
+  Timer? _pollingTimer;
+  bool _isConnected = false;
 
   Future<void> _connectToSerial() async {
 
@@ -3633,11 +3623,11 @@ class _SFormInSituSample extends State<SFormInSituSample> {
       _isDeviceBluetooth = false;
     });
 
-    _getConnectedDevices();
+    _getDevices();
 
   }
 
-  Future<void> _getConnectedDevices() async {
+  Future<void> _getDevices() async {
     List<UsbDevice> devices = await UsbSerial.listDevices();
     setState(() {
       _devices = devices;
@@ -3645,19 +3635,13 @@ class _SFormInSituSample extends State<SFormInSituSample> {
   }
 
   Future<void> _connectToDevice(UsbDevice device) async {
-
-    if (_selectedDevice == null) return;
-
-    UsbPort? port = await _selectedDevice!.create();
-    bool openResult = await port?.open() ?? false;
-    if (!openResult) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to open port.")),
-      );
+    UsbPort? port = await device.create();
+    if (port == null || !await port.open()) {
+      setState(() => _temperature = "Failed to open port.");
       return;
     }
 
-    await port!.setDTR(true);
+    await port.setDTR(true);
     await port.setRTS(true);
     await port.setPortParameters(
       115200,
@@ -3666,45 +3650,29 @@ class _SFormInSituSample extends State<SFormInSituSample> {
       UsbPort.PARITY_NONE,
     );
 
-    _port!.inputStream!.listen((data) {
-      final text = utf8.decode(data);
+    _transaction = Transaction.stringTerminated(
+      port.inputStream!,
+      Uint8List.fromList([13]), // '\r' line end
+    );
 
-      setState(() {
-        _log += text;
-
-        // Extract temperature and pH from the Sonde response
-        final tempMatch = RegExp(r'Temp\s*=\s*([\d.]+)').firstMatch(text);
-        final phMatch = RegExp(r'pH\s*=\s*([\d.]+)').firstMatch(text);
-
-        if (tempMatch != null) {
-          _temperature = tempMatch.group(1) ?? '';
-        }
-
-        if (phMatch != null) {
-          _ph = phMatch.group(1) ?? '';
-        }
-
-      });
-
-      print("Received: $text");
+    _transaction!.stream.listen((data) {
+      print("Received: $data");
+      final match = RegExp(r'Temp.*?([\d.]+)').firstMatch(data);
+      if (match != null) {
+        setState(() {
+          _temperature = '${match.group(1)} °C';
+        });
+      }
     });
 
     _port = port;
-    setState(() {
-      _isConnected = true;
+    _isConnected = true;
+
+    _pollingTimer = Timer.periodic(Duration(seconds: 5), (_) {
+      _port?.write(Uint8List.fromList("read\r".codeUnits));
     });
 
-    // Start continuous read every 5 seconds
-    _readTimer = Timer.periodic(Duration(seconds: 5), (_) {
-      _sendCommand("read\r");
-    });
-
-  }
-
-  Future<void> _sendCommand(String command) async {
-    if (_port != null) {
-      await _port!.write(Uint8List.fromList(command.codeUnits));
-    }
+    setState(() {});
   }
 
 
